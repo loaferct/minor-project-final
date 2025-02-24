@@ -1,6 +1,8 @@
 import json
 import numpy as np
 import re
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 class UniversalChartReconstructor:
     def __init__(self, ocr_path, detection_path):
@@ -249,10 +251,18 @@ class UniversalChartReconstructor:
         with open(output_path, 'w') as f:
             json.dump(chart_data, f, indent=2)
 
-if __name__ == "__main__":
+router = APIRouter()
+
+@router.get("/Bar_reconstruct")
+def bar_reconstruct():
     reconstructor = UniversalChartReconstructor(
         ocr_path="/home/acer/minor project final/bar_ocr_results/ocr_results.json",
         detection_path="/home/acer/bar_bb.json"
     )
     reconstructor.reconstruct()
-    reconstructor.export_json("/home/acer/minor project final/bar_final_op/final.json")
+    output_path = "/home/acer/minor project final/bar_final_op/final.json"
+    reconstructor.export_json(output_path)
+    with open(output_path, 'r') as f:
+        final_json = json.load(f)
+    return JSONResponse(content=final_json)
+
