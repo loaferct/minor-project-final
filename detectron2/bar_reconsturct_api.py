@@ -1,7 +1,7 @@
 import json
 import numpy as np
 import re
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 class UniversalChartReconstructor:
@@ -266,3 +266,51 @@ def bar_reconstruct():
         final_json = json.load(f)
     return JSONResponse(content=final_json)
 
+@router.post("/edit_bar")
+def edit_bar(updated_data: dict):
+    try:
+        # Load the existing chart data
+        output_path = "/home/acer/minor project final/bar_final_op/final.json"
+        with open(output_path, 'r') as f:
+            final_json = json.load(f)
+
+        # Update the title, x_label, and y_label
+        final_json['title'] = updated_data.get('title', final_json['title'])
+        final_json['x_label'] = updated_data.get('x_label', final_json['x_label'])
+        final_json['y_label'] = updated_data.get('y_label', final_json['y_label'])
+
+        # Update categories and corresponding bars
+        for bar in final_json['bars']:
+            category = bar['category']
+            if category in updated_data['bars']:
+                updated_bar = updated_data['bars'][category]
+                
+                # Update category
+                bar['category'] = updated_bar.get('category', bar['category'])
+                
+                # Update color
+                bar['color'] = updated_bar.get('color', bar['color'])
+                
+                # Update value
+                bar['value'] = updated_bar.get('value', bar['value'])
+                
+                # Update top and bottom pixel values if necessary
+                bar['top_px'] = updated_bar.get('top_px', bar['top_px'])
+                bar['bottom_px'] = updated_bar.get('bottom_px', bar['bottom_px'])
+                
+                # Update x_ticks label based on the updated category
+                for x_tick in final_json['x_ticks']:
+                    if x_tick['label'] == category:
+                        x_tick['label'] = updated_bar.get('category', x_tick['label'])
+
+        # Update y_ticks based on changes to bars (if necessary)
+        final_json['y_ticks'] = [{'value': tick['value'], 'position': tick['position']} for tick in final_json['y_ticks']]
+
+        # Save the updated chart data back to final.json
+        with open(output_path, 'w') as f:
+            json.dump(final_json, f, indent=2)
+
+        return JSONResponse(content=final_json)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
