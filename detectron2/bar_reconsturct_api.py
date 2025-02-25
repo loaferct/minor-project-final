@@ -257,7 +257,7 @@ router = APIRouter()
 def bar_reconstruct():
     reconstructor = UniversalChartReconstructor(
         ocr_path="/home/acer/minor project final/bar_ocr_results/ocr_results.json",
-        detection_path="/home/acer/bar_bb.json"
+        detection_path="/home/acer/minor project final/bar_bound_results/bar_detections.json"
     )
     reconstructor.reconstruct()
     output_path = "/home/acer/minor project final/bar_final_op/final.json"

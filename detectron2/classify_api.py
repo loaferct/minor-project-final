@@ -19,10 +19,10 @@ import base64
 router = APIRouter()
 
 cfg = get_cfg()
-config_yaml_path = "/home/acer/Downloads/dataset/Detectron2_Models-20250212T105820Z-001/Detectron2_Models/config.yaml"
+config_yaml_path = "/home/acer/Downloads/dataset/final_model-20250225T113652Z-001/final_model/config.yaml"
 cfg.merge_from_file(config_yaml_path)
 
-cfg.MODEL.WEIGHTS = "/home/acer/Downloads/dataset/Detectron2_Models-20250212T105820Z-001/Detectron2_Models/model_final.pth"
+cfg.MODEL.WEIGHTS = "/home/acer/Downloads/dataset/final_model-20250225T113652Z-001/final_model/model_final.pth"
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # Lowered threshold to detect more objects
 cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -80,11 +80,9 @@ async def predict(image: UploadFile = File(...)):
     # Class mapping
     class_mapping = {
         0: "Text",
-        1: "PieChart",
-        2: "LineChart",
-        3: "BarGraph",
-        4: "Flowchart",
-        5: "Table"
+        1: "Table",
+        2: "BarGraph",
+        3: "PieChart",
     }
 
     image = cv2.imread(image_path)

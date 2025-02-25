@@ -8,6 +8,8 @@ from fastapi import APIRouter
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 import torch
+import os
+
 
 cfg = get_cfg()
 config_yaml_path = "/home/acer/Downloads/dataset/bar_model/Detectron2_Models/config.yaml"
@@ -61,12 +63,11 @@ def process_image(image_path, predictor, output_dir):
 
 def save_results(image_path, detections, output_dir):
     """Save detection results in JSON format matching required structure."""
-    base_name = os.path.splitext(os.path.basename(image_path))[0]
     os.makedirs(output_dir, exist_ok=True)
 
     json_output = {image_path: detections}
 
-    json_path = os.path.join(output_dir, f"{base_name}_detections.json")
+    json_path = os.path.join(output_dir, "bar_detections.json")
     with open(json_path, "w") as f:
         json.dump(json_output, f, indent=4)
 
@@ -76,6 +77,15 @@ router = APIRouter()
 
 @router.get("/Bar-bb")
 def get_bb():
-    image_path = "/home/acer/Desktop/Bar_364.png"
+    directory = "/home/acer/minor project final/classification_results/BarGraph"
+    files = os.listdir(directory)
+    image_file = next((file for file in files if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))), None)
+
+    if image_file:
+        image_path = os.path.join(directory, image_file)
+    else:
+        return{"Message":"No image file found."}
+
     output_directory = "/home/acer/minor project final/bar_bound_results"
     process_image(image_path, predictor, output_directory)
+    return {"Message" : "Bounding Box added successfully"}

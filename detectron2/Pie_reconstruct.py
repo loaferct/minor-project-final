@@ -1,9 +1,11 @@
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
 import json
+import os
 import math
 from typing import List, Tuple, Dict, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 class PieChartError(Exception):
     """Custom exception for pie chart processing errors"""
@@ -19,178 +21,316 @@ def is_numerical(text: str) -> bool:
         return False
 
 def get_angle(point: Tuple[float, float], center: Tuple[int, int]) -> float:
-    """Calculate angle between point and center relative to horizontal axis"""
+    """Calculate the angle between a point and the center in degrees"""
     dx = point[0] - center[0]
     dy = point[1] - center[1]
-    return np.degrees(np.arctan2(dy, dx)) % 360
+    return (np.degrees(np.arctan2(dy, dx)) + 360) % 360
 
-def kmeans_numpy(X, n_clusters, max_iter=300, n_init=10):
+def kmeans_numpy(X, n_clusters, max_iter=100, n_init=5):
     """K-means clustering implementation using NumPy"""
     best_inertia = float('inf')
     best_centers = None
     best_labels = None
 
     for _ in range(n_init):
+        if len(X) <= n_clusters:
+            centers = X.copy().astype(np.float64)
+            labels = np.arange(len(X))
+            return type('KMeansResult', (), {'cluster_centers_': centers, 'labels_': labels})()
+
         idx = np.random.choice(len(X), n_clusters, replace=False)
         centers = X[idx].astype(np.float64)
 
         for _ in range(max_iter):
             distances = np.sqrt(((X[:, np.newaxis] - centers) ** 2).sum(axis=2))
             labels = np.argmin(distances, axis=1)
-            new_centers = np.array([X[labels == k].mean(axis=0) if np.any(labels == k) else centers[k] for k in range(n_clusters)])
+            new_centers = np.empty_like(centers)
+            for k in range(n_clusters):
+                if np.any(labels == k):
+                    new_centers[k] = X[labels == k].mean(axis=0)
+                else:
+                    new_centers[k] = centers[k]
             if np.allclose(centers, new_centers):
                 break
             centers = new_centers
 
         inertia = np.sum((X - centers[labels]) ** 2)
         if inertia < best_inertia:
-            best_inertia, best_centers, best_labels = inertia, centers, labels
+            best_inertia = inertia
+            best_centers = centers
+            best_labels = labels
 
-    return type('KMeansResult', (), {'cluster_centers_': best_centers, 'labels_': best_labels})()
+    return type('KMeansResult', (), {
+        'cluster_centers_': best_centers,
+        'labels_': best_labels
+    })()
 
-def extract_segment_info(image: np.ndarray, mask: np.ndarray, pie_center: Tuple[int, int], expected_segments: int) -> List[Dict]:
-    """Extract pie segment information using K-means clustering"""
+def extract_segment_info(
+    image: np.ndarray,
+    mask: np.ndarray,
+    pie_center: Tuple[int, int],
+    expected_segments: int
+) -> List[Dict]:
+    """Extract segment information including centroids from the pie chart"""
     y_coords, x_coords = np.nonzero(mask)
+    max_pixels = 10000
+    if len(y_coords) > max_pixels:
+        sample_indices = np.random.choice(len(y_coords), max_pixels, replace=False)
+        y_coords = y_coords[sample_indices]
+        x_coords = x_coords[sample_indices]
     pixels = image[y_coords, x_coords]
 
     if len(pixels) < expected_segments:
-        raise PieChartError(f"Not enough pixels ({len(pixels)}) for {expected_segments} segments")
+        expected_segments = max(1, len(pixels) // 10)
 
-    kmeans = kmeans_numpy(pixels, expected_segments)
-    angles = np.degrees(np.arctan2(y_coords - pie_center[1], x_coords - pie_center[0])) % 360
+    kmeans = kmeans_numpy(pixels, n_clusters=expected_segments)
+    angles = np.degrees(np.arctan2(y_coords - pie_center[1], x_coords - pie_center[0]))
+    angles = (angles + 360) % 360
     pixel_labels = kmeans.labels_
 
     segments = []
     for i in range(expected_segments):
         segment_mask = pixel_labels == i
-        segment_angles = angles[segment_mask]
-        if not len(segment_angles):
+        segment_x = x_coords[segment_mask]
+        segment_y = y_coords[segment_mask]
+        if len(segment_x) == 0:
             continue
-
-        start = np.min(segment_angles)
-        end = np.max(segment_angles)
-        if end - start > 330:  # Handle wrap-around
+        centroid_x = np.mean(segment_x)
+        centroid_y = np.mean(segment_y)
+        segment_angles = angles[segment_mask]
+        start_angle = np.min(segment_angles)
+        end_angle = np.max(segment_angles)
+        # Handle wrap-around segments
+        if end_angle - start_angle > 330:
             sorted_angles = np.sort(segment_angles)
             gaps = sorted_angles[1:] - sorted_angles[:-1]
-            split = np.argmax(gaps)
-            start, end = sorted_angles[split+1], sorted_angles[split]
-
+            if len(gaps) > 0:
+                max_gap_idx = np.argmax(gaps)
+                start_angle = sorted_angles[max_gap_idx + 1]
+                end_angle = sorted_angles[max_gap_idx]
         segments.append({
-            'start_angle': float(start),
-            'end_angle': float(end),
+            'start_angle': float(start_angle),
+            'end_angle': float(end_angle),
             'color': kmeans.cluster_centers_[i].astype(int),
-            'pixel_count': int(np.sum(segment_mask))
+            'pixel_count': int(np.sum(segment_mask)),
+            'centroid': (float(centroid_x), float(centroid_y))
         })
 
     segments.sort(key=lambda x: x['start_angle'])
     return segments
 
-def match_labels_and_get_title(text_regions: List[Dict], pie_center: Tuple[int, int]) -> Tuple[List[str], List[float], str]:
-    """Pair numerical values with closest labels and determine title from remaining text"""
+def match_labels_and_get_title(
+    text_regions: List[Dict],
+    pie_center: Tuple[int, int]
+) -> Tuple[List[str], List[float], str]:
+    """Match labels with percentages and determine the title when percentages are present"""
     numericals = []
     non_numericals = []
-
-    # Classify text regions
     for region in text_regions:
         if is_numerical(region['text']):
             numericals.append(region)
         else:
             non_numericals.append(region)
 
-    # Pair each numerical with closest non-numerical
     pairs = []
-    used_non_numericals = []  # Use a list instead of a set
+    used_non_numericals = []
     for num in numericals:
+        candidate_non_numericals = [nn for nn in non_numericals if nn not in used_non_numericals]
+        if not candidate_non_numericals:
+            raise PieChartError(f"Unpaired numerical value: {num['text']}")
         closest = min(
-            [nn for nn in non_numericals if nn not in used_non_numericals],
+            candidate_non_numericals,
             key=lambda nn: math.hypot(
                 num['center'][0] - nn['center'][0],
                 num['center'][1] - nn['center'][1]
-            ),
-            default=None
+            )
         )
-        if not closest:
-            raise PieChartError(f"Unpaired numerical value: {num['text']}")
         pairs.append((closest, num))
-        used_non_numericals.append(closest)  # Add to list instead of set
+        used_non_numericals.append(closest)
 
-    # Extract labels and percentages
-    labels = [closest['text'] for closest, _ in pairs]
-    percentages = [float(num['text'].strip('%')) for _, num in pairs]
-
-    # Determine title from remaining text
+    labels = [pair[0]['text'] for pair in pairs]
+    percentages = [float(pair[1]['text'].strip('%')) for pair in pairs]
     title_candidates = [nn for nn in non_numericals if nn not in used_non_numericals]
     title = " ".join([tc['text'] for tc in title_candidates]) if title_candidates else "Pie Chart"
-
     return labels, percentages, title
 
-def process_pie_chart(image_path: str, paddle_results: List[Dict], save_path: Optional[str] = None) -> Dict:
-    """Main processing function with improved title handling"""
+def process_pie_chart(
+    image_path: str,
+    paddle_results: List[Dict],
+    save_path: Optional[str] = None
+) -> Dict:
+    """Process the pie chart image and extract data"""
     try:
         # Load and preprocess image
         image = cv2.imread(image_path)
         if image is None:
             raise PieChartError("Image load failed")
 
-        # Detect pie chart
+        max_dim = 1000
+        h, w = image.shape[:2]
+        if max(h, w) > max_dim:
+            scale = max_dim / max(h, w)
+            image = cv2.resize(image, (int(w * scale), int(h * scale)))
+
+        # Detect pie chart contour
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         _, binary = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
         contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
         if not contours:
-            raise PieChartError("No pie chart detected")
+            sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=5)
+            sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=5)
+            sobel = cv2.magnitude(sobelx, sobely)
+            sobel = np.uint8(sobel)
+            _, binary = cv2.threshold(sobel, 50, 255, cv2.THRESH_BINARY)
+            contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if not contours:
+                raise PieChartError("No pie chart detected in image")
 
-        # Create mask and find center
+        pie_contour = max(contours, key=cv2.contourArea)
         mask = np.zeros_like(gray)
-        cv2.drawContours(mask, [max(contours, key=cv2.contourArea)], -1, 255, -1)
+        cv2.drawContours(mask, [pie_contour], -1, 255, -1)
         moments = cv2.moments(mask)
-        pie_center = (int(moments['m10']/moments['m00']), int(moments['m01']/moments['m00']))
+        if moments['m00'] == 0:
+            raise PieChartError("Invalid pie chart contour moments")
+        pie_center = (int(moments['m10'] / moments['m00']), int(moments['m01'] / moments['m00']))
 
-        # Process text regions
+        # Process OCR results
         text_regions = []
         for result in paddle_results:
-            if result['confidence'] <= 0.5:
+            if result.get('confidence', 1) <= 0.5:
                 continue
             box = result['box']
-            x_coords = [p[0] for p in box]
-            y_coords = [p[1] for p in box]
+            x_coords = [pt[0] for pt in box]
+            y_coords = [pt[1] for pt in box]
+            x_min, y_min = min(x_coords), min(y_coords)
+            x_max, y_max = max(x_coords), max(y_coords)
             text_regions.append({
                 'text': result['text'],
-                'center': (
-                    (min(x_coords) + max(x_coords)) / 2,
-                    (min(y_coords) + max(y_coords)) / 2
-                ),
-                'bbox': (min(x_coords), min(y_coords), max(x_coords)-min(x_coords), max(y_coords)-min(y_coords))
+                'center': ((x_min + x_max) / 2.0, (y_min + y_max) / 2.0),
+                'bbox': (x_min, y_min, x_max - x_min, y_max - y_min)
             })
 
-        # Match labels and get title
-        labels, percentages, title = match_labels_and_get_title(text_regions, pie_center)
+        has_percentage = any(is_numerical(r['text']) and ('%' in r['text']) for r in text_regions)
 
-        # Extract segments
+        if has_percentage:
+            labels, percentages, title = match_labels_and_get_title(text_regions, pie_center)
+            expected_segments = len(percentages)
+        else:
+            # Handle case without percentages
+            if text_regions:
+                top_text = min(text_regions, key=lambda r: r['center'][1])
+                title = top_text['text']
+                non_title_regions = [r for r in text_regions if r is not top_text]
+            else:
+                title = "Pie Chart"
+                non_title_regions = []
+            expected_segments = len(non_title_regions) if non_title_regions else 3
+
+        if expected_segments < 2:
+            expected_segments = 2
+
+        # Extract segments with centroids
         segments = extract_segment_info(
             cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
             mask,
             pie_center,
-            len(labels)
+            expected_segments
         )
+        if not segments:
+            segments = [{
+                'start_angle': 0,
+                'end_angle': 360,
+                'color': np.array([200, 200, 200]),
+                'pixel_count': 100,
+                'centroid': pie_center
+            }]
 
-        # Prepare output
+        if has_percentage:
+            # Use OCR-provided percentages and labels
+            pass
+        else:
+            # Compute percentages from pixel counts
+            total_pixels = sum(seg['pixel_count'] for seg in segments)
+            percentages = [seg['pixel_count'] / total_pixels * 100 for seg in segments]
+
+            # Compute pie radius
+            distances = [math.hypot(pt[0][0] - pie_center[0], pt[0][1] - pie_center[1]) for pt in pie_contour]
+            radius = np.mean(distances)
+
+            # Add mid-angle to segments
+            for seg in segments:
+                seg['mid_angle'] = (seg['start_angle'] + seg['end_angle']) / 2.0
+
+            # Compute angles for text regions
+            for text_region in non_title_regions:
+                text_region['angle'] = get_angle(text_region['center'], pie_center)
+
+            # Match segments to text regions using distance and angle
+            pairs = []
+            for seg_idx, seg in enumerate(segments):
+                for text_idx, text_region in enumerate(non_title_regions):
+                    distance = math.hypot(seg['centroid'][0] - text_region['center'][0],
+                                        seg['centroid'][1] - text_region['center'][1])
+                    angular_diff = min(abs(seg['mid_angle'] - text_region['angle']),
+                                     360 - abs(seg['mid_angle'] - text_region['angle']))
+                    score = (distance / radius) + (angular_diff / 180)
+                    pairs.append((score, seg_idx, text_idx))
+
+            # Sort pairs by score (lower is better)
+            pairs.sort(key=lambda x: x[0])
+
+            # Assign labels to segments
+            assigned_labels = [None] * len(segments)
+            used_text_indices = set()
+            for score, seg_idx, text_idx in pairs:
+                if assigned_labels[seg_idx] is None and text_idx not in used_text_indices:
+                    assigned_labels[seg_idx] = non_title_regions[text_idx]['text']
+                    used_text_indices.add(text_idx)
+
+            # Assign default labels to unmatched segments
+            for i in range(len(segments)):
+                if assigned_labels[i] is None:
+                    assigned_labels[i] = f"Segment {i+1}"
+
+            labels = assigned_labels
+
+        # Compile chart data
         chart_data = {
             "title": title,
             "pie_center": list(pie_center),
-            "slices": [{
-                "label": labels[i],
-                "percentage": percentages[i],
-                "color": seg['color'].tolist(),
-                "start_angle": seg['start_angle'],
-                "end_angle": seg['end_angle'],
-                "pixel_count": seg['pixel_count']
-            } for i, seg in enumerate(segments)]
+            "slices": []
         }
+        for i, seg in enumerate(segments):
+            label = labels[i] if i < len(labels) else f"Segment {i+1}"
+            perc = percentages[i] if i < len(percentages) else 0.0
+            chart_data["slices"].append({
+                "label": label,
+                "percentage": float(perc),
+                "color": seg['color'].tolist(),
+                "start_angle": float(seg['start_angle']),
+                "end_angle": float(seg['end_angle']),
+                "pixel_count": int(seg['pixel_count'])
+            })
 
-        # Save outputs as pie_construct.json in the specified directory
-        save_path = "/home/acer/minor project final/pie_final_op/pie_construct.json"
-        with open(save_path, 'w') as f:
+        # Save results
+        json_path = "/home/acer/data.json"
+        with open(json_path, 'w') as f:
             json.dump(chart_data, f, indent=4)
+
+        # Generate and save reconstructed pie chart
+        plt.figure(figsize=(10, 10))
+        normalized_colors = [seg['color'] / 255.0 for seg in segments]
+        plt.pie(
+            percentages,
+            labels=labels,
+            colors=normalized_colors,
+            autopct='%1.1f%%',
+            startangle=90
+        )
+        plt.title(title)
+        plt.savefig("/home/acer/reconstruction.png")
+        plt.close()
 
         return chart_data
 
@@ -202,14 +342,9 @@ router = APIRouter()
 
 @router.get("/pie_reconstruct")
 def pie_reconstruct():
-    image_path = "/home/acer/Desktop/pie.png"
-    
-    with open("/home/acer/minor project final/Pie_ocr_results/ocr_results.json") as f:
-        ocr_data = json.load(f)
-    
-    result = process_pie_chart(image_path, ocr_data)
-
-    if result is None:
-        raise HTTPException(status_code=500, detail="Error processing pie chart")
-    
-    return result
+    image_path = "/home/acer/Desktop/pie.png"  # Replace with your image path
+    with open("/home/acer/minor project final/Pie_ocr_results/ocr_results.json", "r") as f:  # Replace with your OCR results path
+        paddle_results = json.load(f)
+    result = process_pie_chart(image_path, paddle_results, save_path="output_chart")
+    if result:
+        print(json.dumps(result, indent=4))

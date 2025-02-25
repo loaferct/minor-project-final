@@ -10,9 +10,15 @@ ocr = PaddleOCR(use_angle_cls=True, lang="en")
 
 @router.post("/ocr")
 async def perform_ocr():
-    img_path = "/home/acer/Desktop/Bar_364.png"
+    directory = "/home/acer/minor project final/classification_results/BarGraph"
+    files = os.listdir(directory)
+    image_file = next((file for file in files if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))), None)
+
+    if image_file:
+        img_path = os.path.join(directory, image_file)
+    else:
+        return{"Message":"No image file found."}
     
-    # Perform OCR
     result = ocr.ocr(img_path, cls=True)
     
     detections = result[0]
@@ -26,7 +32,6 @@ async def perform_ocr():
             "confidence": round(score, 4)
         })
     
-    # Save structured results to JSON
     json_filename = "/home/acer/minor project final/bar_ocr_results/ocr_results.json"
     with open(json_filename, "w", encoding="utf-8") as jsonfile:
         json.dump(response_data, jsonfile, ensure_ascii=False, indent=4)
