@@ -315,7 +315,7 @@ def process_pie_chart(
             })
 
         # Save results
-        json_path = "/home/acer/data.json"
+        json_path = "/home/acer/minor project final/pie_final_op/pie_construct.json"
         with open(json_path, 'w') as f:
             json.dump(chart_data, f, indent=4)
 
@@ -365,3 +365,36 @@ def pie_reconstruct():
 
     except Exception as e:
         return JSONResponse(content={"Message": str(e)}, status_code=500)
+    
+@router.put("/edit_pie")
+def edit_pie(request_data: dict):
+    try:
+        # Define the file path where the pie chart data is stored
+        pie_file_path = "/home/acer/minor project final/pie_final_op/pie_construct.json"
+
+        # Check if the JSON file exists
+        if not os.path.exists(pie_file_path):
+            raise HTTPException(status_code=404, detail="Pie chart JSON file not found.")
+
+        # Load the existing content from the JSON file
+        with open(pie_file_path, "r") as f:
+            current_data = json.load(f)
+
+        # Update the content based on the incoming request data
+        current_data["title"] = request_data.get("title", current_data.get("title"))
+        current_data["pie_center"] = request_data.get("pie_center", current_data.get("pie_center"))
+        
+        # Check if the "slices" field is provided and update the slices
+        if "slices" in request_data:
+            current_data["slices"] = request_data["slices"]
+
+        # Save the updated content back into the JSON file
+        with open(pie_file_path, "w") as f:
+            json.dump(current_data, f, indent=4)
+
+        # Return the updated data as the response
+        return JSONResponse(content={"message": "Pie chart content updated successfully.", "data": current_data}, status_code=200)
+
+    except Exception as e:
+        # Handle errors and return an appropriate response
+        raise HTTPException(status_code=500, detail=f"Error updating pie chart: {str(e)}")
