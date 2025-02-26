@@ -6,6 +6,7 @@ import os
 import math
 from typing import List, Tuple, Dict, Optional
 from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 class PieChartError(Exception):
     """Custom exception for pie chart processing errors"""
@@ -342,9 +343,25 @@ router = APIRouter()
 
 @router.get("/pie_reconstruct")
 def pie_reconstruct():
-    image_path = "/home/acer/Desktop/pie.png"  # Replace with your image path
-    with open("/home/acer/minor project final/Pie_ocr_results/ocr_results.json", "r") as f:  # Replace with your OCR results path
-        paddle_results = json.load(f)
-    result = process_pie_chart(image_path, paddle_results, save_path="output_chart")
-    if result:
-        print(json.dumps(result, indent=4))
+    try:
+        directory = "/home/acer/minor project final/classification_results/PieChart"
+        files = os.listdir(directory)
+        image_file = next((file for file in files if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))), None)
+
+        if image_file:
+            image_path = os.path.join(directory, image_file)
+        else:
+            return {"Message": "No image file found."}
+        
+        with open("/home/acer/minor project final/Pie_ocr_results/ocr_results.json", "r") as f:  # Replace with your OCR results path
+            paddle_results = json.load(f)
+        
+        result = process_pie_chart(image_path, paddle_results, save_path="output_chart")
+        
+        if result:
+            return JSONResponse(content=result, status_code=200)
+        else:
+            return JSONResponse(content={"Message": "Error processing pie chart."}, status_code=400)
+
+    except Exception as e:
+        return JSONResponse(content={"Message": str(e)}, status_code=500)

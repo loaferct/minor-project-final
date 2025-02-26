@@ -6,7 +6,6 @@ import json
 import numpy as np
 import os
 import io
-from typing import Dict, Any
 import zipfile
 
 # Initialize FastAPI app
@@ -74,7 +73,8 @@ def process_image(image_path):
 
 @router.get("/convert-table-to-json/")
 async def download_table_json():
-    # Define the input directory
+    if os.path.exists("/home/acer/Downloads/table_data.zip"):
+        os.remove("/home/acer/Downloads/table_data.zip")
     input_dir = "/home/acer/minor project final/classification_results/Table"
     
     # Check if input directory exists

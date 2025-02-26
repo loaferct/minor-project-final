@@ -28,8 +28,23 @@ cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 predictor = DefaultPredictor(cfg)
 
+def delete_files_in_directory():
+    folder_path = "/home/acer/minor project final/classification_results"
+    if os.path.exists(folder_path):
+        # Iterate through the folder's contents
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            
+            # Check if it's a file or directory
+            if os.path.isfile(item_path):
+                os.remove(item_path)  # Remove the file
+            elif os.path.isdir(item_path):
+                shutil.rmtree(item_path)
+
 @router.post("/predict/")
 async def predict(image: UploadFile = File(...)):
+    if os.path.exists("/home/acer/Downloads/results.zip"):
+        os.remove("/home/acer/Downloads/results.zip")
     # Create a unique session folder
     session_id = str(uuid.uuid4())
     session_dir = f"/home/acer/Desktop/result/{session_id}"
@@ -137,6 +152,7 @@ async def predict(image: UploadFile = File(...)):
 
 @router.get("/unzipfile/")
 def unzip():
+    delete_files_in_directory()
     with zipfile.ZipFile("/home/acer/Downloads/results.zip", 'r') as zip_ref:
         zip_ref.extractall("/home/acer/minor project final/classification_results")
         return {"message": "successfully extracted"}

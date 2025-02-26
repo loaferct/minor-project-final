@@ -92,8 +92,14 @@ router = APIRouter()
 def pie_ocr():
     ocr = PaddleOCR(use_angle_cls=True, lang="en")
 
-    # Path to image
-    img_path = '/home/acer/Desktop/pie.png'
+    directory = "/home/acer/minor project final/classification_results/PieChart"
+    files = os.listdir(directory)
+    image_file = next((file for file in files if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))), None)
+
+    if image_file:
+        img_path = os.path.join(directory, image_file)
+    else:
+        return{"Message":"No image file found."}
 
     # Perform OCR
     result = ocr.ocr(img_path, cls=True)
