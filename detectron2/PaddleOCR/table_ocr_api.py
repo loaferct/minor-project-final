@@ -7,6 +7,7 @@ import numpy as np
 import os
 import io
 import zipfile
+import shutil
 
 # Initialize FastAPI app
 router = APIRouter()
@@ -115,6 +116,8 @@ async def download_table_json():
 
 @router.get("/unzipfile/")
 def unzip():
+    if os.path.exists("/home/acer/minor project final/table_results"):
+        shutil.rmtree("/home/acer/minor project final/table_results")
     with zipfile.ZipFile("/home/acer/Downloads/table_data.zip", 'r') as zip_ref:
         zip_ref.extractall("/home/acer/minor project final/table_results")
         return {"message": "successfully extracted"}

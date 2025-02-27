@@ -4,6 +4,7 @@ import json
 import cv2
 import os
 from fastapi.responses import JSONResponse
+import shutil
 
 router = APIRouter()
 
@@ -39,6 +40,8 @@ def process_image(image_path):
 # API endpoint to perform OCR on multiple images
 @router.get("/perform-ocr/")
 async def perform_ocr():
+    if os.path.exists("/home/acer/minor project final/text_ocr_results"):
+        shutil.rmtree("/home/acer/minor project final/text_ocr_results")
     input_dir = '/home/acer/minor project final/classification_results/Text'
     output_dir = '/home/acer/minor project final/text_ocr_results'
 
@@ -65,4 +68,31 @@ async def perform_ocr():
         results[image_file] = json_output
 
     # Return a response containing the OCR results for all images
+    return JSONResponse(content=results)
+
+@router.get("/get-ocr-results/")
+async def get_ocr_results():
+    input_dir = '/home/acer/minor project final/text_ocr_results'
+
+    # Check if the directory exists
+    if not os.path.exists(input_dir):
+        return JSONResponse(status_code=404, content={"message": "Directory not found"})
+
+    # Get list of JSON files in the input directory
+    json_files = [f for f in os.listdir(input_dir) if f.lower().endswith('.json')]
+
+    results = {}
+
+    # Process each JSON file
+    for json_file in json_files:
+        json_path = os.path.join(input_dir, json_file)
+
+        # Open and load the JSON content
+        with open(json_path, 'r') as f:
+            content = json.load(f)
+
+        # Store the result using the file path as the key
+        results[json_path] = content
+
+    # Return a response containing the OCR results from all JSON files
     return JSONResponse(content=results)
