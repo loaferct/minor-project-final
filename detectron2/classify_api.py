@@ -23,7 +23,7 @@ config_yaml_path = "/home/acer/Downloads/dataset/lasttry-20250227T155349Z-001/la
 cfg.merge_from_file(config_yaml_path)
 
 cfg.MODEL.WEIGHTS = "/home/acer/Downloads/dataset/lasttry-20250227T155349Z-001/lasttry/model_final.pth"
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.8
 cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 predictor = DefaultPredictor(cfg)
