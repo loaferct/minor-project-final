@@ -19,11 +19,11 @@ import base64
 router = APIRouter()
 
 cfg = get_cfg()
-config_yaml_path = "/home/acer/Downloads/dataset/final_model-20250225T113652Z-001/final_model/config.yaml"
+config_yaml_path = "/home/acer/Downloads/dataset/lasttry-20250227T155349Z-001/lasttry/config.yaml"
 cfg.merge_from_file(config_yaml_path)
 
-cfg.MODEL.WEIGHTS = "/home/acer/Downloads/dataset/final_model-20250225T113652Z-001/final_model/model_final.pth"
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.3  # Lowered threshold to detect more objects
+cfg.MODEL.WEIGHTS = "/home/acer/Downloads/dataset/lasttry-20250227T155349Z-001/lasttry/model_final.pth"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.7
 cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 predictor = DefaultPredictor(cfg)
@@ -51,12 +51,14 @@ async def predict(image: UploadFile = File(...)):
     os.makedirs(session_dir, exist_ok=True)
 
     # Save uploaded image
-    image_path = os.path.join(session_dir, image.filename)
-    with open(image_path, "wb") as f:
+    temp_image_path = os.path.join(session_dir, "temp_image.png")
+    with open(temp_image_path, "wb") as f:
         f.write(await image.read())
 
+    original_image_path = os.path.join(session_dir, "original.png")
+    shutil.copyfile(temp_image_path, original_image_path)
     # Load image
-    new_im = cv2.imread(image_path)
+    new_im = cv2.imread(temp_image_path)
     if new_im is None:
         return {"error": "Invalid image file"}
 
@@ -71,13 +73,32 @@ async def predict(image: UploadFile = File(...)):
     pred_classes = outputs["instances"].pred_classes.tolist()
     scores = outputs["instances"].scores.tolist()
 
-    # Visualize results
-    train_metadata = MetadataCatalog.get("your_dataset_name")  # Update if needed
-    v = Visualizer(new_im[:, :, ::-1], metadata=train_metadata)
-    out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+    # Class mapping
+    class_mapping = {
+        0: "Text",
+        1: "Table",
+        2: "BarGraph",
+        3: "PieChart",
+    }
 
-    # Save visualization
-    cv2.imwrite(os.path.join(session_dir, "prediction.png"), out.get_image()[:, :, ::-1])
+    # Visualize results
+    v = Visualizer(new_im[:, :, ::-1], metadata=MetadataCatalog.get("your_dataset_name"), scale=1.0)
+    
+    # Manually draw each prediction with class name and score
+    for box, cls, score in zip(pred_boxes, pred_classes, scores):
+        class_name = class_mapping.get(cls, f"Unknown_{cls}")  # Map class ID to name
+        label = f"{class_name}: {score:.2f}"  # Combine class name and score
+
+        # Draw the bounding box
+        v.draw_box(box, edge_color="g")  # Green bounding box (you can change the color)
+
+        # Draw the label above the box
+        x, y = box[0], box[1]  # Top-left corner of the box
+        v.draw_text(label, (x, y - 10), color="g", font_size=10)  # Adjust position and styling as needed
+
+    # Save the visualized image
+    output_image = v.output.get_image()[:, :, ::-1]  # Convert back to BGR for OpenCV
+    cv2.imwrite(os.path.join(session_dir, "prediction.png"), output_image)
 
     # Save JSON output
     predictions = []
@@ -92,24 +113,15 @@ async def predict(image: UploadFile = File(...)):
     with open(json_path, "w") as f:
         json.dump(predictions, f, indent=4)
 
-    # Class mapping
-    class_mapping = {
-        0: "Text",
-        1: "Table",
-        2: "BarGraph",
-        3: "PieChart",
-    }
-
-    image = cv2.imread(image_path)
+    image = cv2.imread(temp_image_path)
     h, w = image.shape[:2]  # Get image dimensions for bounds checking
 
-    # Create output directories and crop images
     for i, detection in enumerate(predictions):
         class_id = detection["class"]
         bbox = detection["bbox"]
         score = detection["score"]
 
-        # Get class name, default to "Unknown_<class_id>" if not in mapping
+        # Get class name
         class_name = class_mapping.get(class_id, f"Unknown_{class_id}")
 
         class_dir = os.path.join(session_dir, class_name)
@@ -122,7 +134,7 @@ async def predict(image: UploadFile = File(...)):
         x2 = min(w, x2)
         y2 = min(h, y2)
 
-        # Skip if the crop would be invalid (e.g., zero area)
+        # Skip if the crop would be invalid
         if x1 >= x2 or y1 >= y2:
             print(f"Skipping invalid crop for {class_name} at index {i}: {bbox}")
             continue
@@ -131,11 +143,14 @@ async def predict(image: UploadFile = File(...)):
         object_crop = image[y1:y2, x1:x2]
 
         # Save the cropped image
-        filename = f"{class_name}_score_{score:.2f}_{i}.png"  # Added index to avoid overwriting
+        filename = f"{class_name}_score_{score:.2f}_{i}.png"
         output_path = os.path.join(class_dir, filename)
         success = cv2.imwrite(output_path, object_crop)
         if not success:
             print(f"Failed to save crop for {class_name} at {output_path}")
+
+    # Remove the temporary uploaded image
+    os.remove(temp_image_path)
 
     # Zip the results
     zip_path = f"{session_dir}.zip"

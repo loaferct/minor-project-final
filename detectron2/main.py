@@ -10,6 +10,7 @@ from bar_boudning_api import router as bar_bounding
 from bar_reconsturct_api import router as bar_reconstruct
 from Pie_reconstruct import router as pie_reconstruct
 from PaddleOCR.text_paddle_api import router as text_router
+from final_reconstruct import router as final_router
 
 app = FastAPI()
 
@@ -31,3 +32,4 @@ app.include_router(bar_paddle, prefix="/bar", tags=["Bar Reconstruct"])
 app.include_router(bar_bounding, prefix="/bar", tags=["Bar Reconstruct"])
 app.include_router(bar_reconstruct, prefix="/bar", tags=["Bar Reconstruct"])
 app.include_router(text_router, prefix="/text", tags=["Text OCR"])
+app.include_router(final_router, prefix="/final", tags=["Final"])
