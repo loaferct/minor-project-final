@@ -94,7 +94,7 @@ async def predict(image: UploadFile = File(...)):
 
         # Draw the label above the box
         x, y = box[0], box[1]  # Top-left corner of the box
-        v.draw_text(label, (x, y - 10), color="g", font_size=10)  # Adjust position and styling as needed
+        v.draw_text(label, (x+40, y), color="g", font_size=10)  # Adjust position and styling as needed
 
     # Save the visualized image
     output_image = v.output.get_image()[:, :, ::-1]  # Convert back to BGR for OpenCV
