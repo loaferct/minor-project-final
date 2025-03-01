@@ -89,9 +89,8 @@ def merge_nearby_texts(detections, vertical_threshold=20, horizontal_overlap_thr
 
 router = APIRouter()
 @router.get("/pie_ocr")
-def pie_ocr():
+async def perform_pie_ocr():
     ocr = PaddleOCR(use_angle_cls=True, lang="en")
-
     directory = "/home/acer/minor project final/classification_results/PieChart"
     files = os.listdir(directory)
     image_file = next((file for file in files if file.endswith(('.png', '.jpg', '.jpeg', '.bmp'))), None)
@@ -99,38 +98,27 @@ def pie_ocr():
     if image_file:
         img_path = os.path.join(directory, image_file)
     else:
-        return{"Message":"No image file found."}
-
+        return {"message": "No image file found."}
+    
     # Perform OCR
     result = ocr.ocr(img_path, cls=True)
-
+    
     # Extract results from the first (and only) page
     detections = result[0]
-
-    # Extract boxes, texts, and scores
-    boxes = [detection[0] for detection in detections]
-    txts = [detection[1][0] for detection in detections]
-    scores = [detection[1][1] for detection in detections]
-
-    # Build a list of detection dictionaries
-    raw_detections = []
-    for box, text, score in zip(boxes, txts, scores):
-        raw_detections.append({
+    response_data = []
+    
+    # Process detections
+    for detection in detections:
+        box, (text, score) = detection
+        response_data.append({
             "box": box,
             "text": text,
-            "confidence": float(f"{score:.4f}")
+            "confidence": round(score, 4)
         })
-
-    # Merge detections that belong together (only for non-percentage texts)
-    merged_detections = merge_nearby_texts(raw_detections)
-
-    # Get font path for drawing results
-    font_path = get_font()
-
-
-    # Here we save the merged results to a JSON file.
-    with open('/home/acer/minor project final/Pie_ocr_results/ocr_results.json', 'w', encoding='utf-8') as jsonfile:
-        json.dump(merged_detections, jsonfile, ensure_ascii=False, indent=4)
-        
-    return {"Message" : "Successfully OCRed"}
-
+    
+    # Save to JSON file
+    json_filename = "/home/acer/minor project final/Pie_ocr_results/ocr_results.json"
+    with open(json_filename, "w", encoding="utf-8") as jsonfile:
+        json.dump(response_data, jsonfile, ensure_ascii=False, indent=4)
+    
+    return {"message": "OCR results saved to JSON file", "file": json_filename}
