@@ -17,3 +17,5 @@ albumentations
 lmdb
 python-docx
 bs4
+scipy
+reportlab

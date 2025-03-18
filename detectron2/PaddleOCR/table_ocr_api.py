@@ -7,6 +7,7 @@ import numpy as np
 import os
 import io
 import zipfile
+import shutil
 
 # Initialize FastAPI app
 router = APIRouter()
@@ -73,7 +74,8 @@ def process_image(image_path):
 
 @router.get("/convert-table-to-json/")
 async def download_table_json():
-    # Define the input directory
+    if os.path.exists("/home/acer/Downloads/table_data.zip"):
+        os.remove("/home/acer/Downloads/table_data.zip")
     input_dir = "/home/acer/minor project final/classification_results/Table"
     
     # Check if input directory exists
@@ -114,20 +116,51 @@ async def download_table_json():
 
 @router.get("/unzipfile/")
 def unzip():
+    if os.path.exists("/home/acer/minor project final/table_results"):
+        shutil.rmtree("/home/acer/minor project final/table_results")
     with zipfile.ZipFile("/home/acer/Downloads/table_data.zip", 'r') as zip_ref:
         zip_ref.extractall("/home/acer/minor project final/table_results")
         return {"message": "successfully extracted"}
-    
+
 @router.get("/get-json-files")
 async def get_json_files():
     directory = '/home/acer/minor project final/table_results'
     json_files = [f for f in os.listdir(directory) if f.endswith('.json')]
     
-    json_data = []
+    json_data = {}
     for file_name in json_files:
         file_path = os.path.join(directory, file_name)
         with open(file_path, 'r') as file:
             data = json.load(file)
-            json_data.append(data)
+            # Use the file name as the table name (without the '.json' extension)
+            table_name = file_name.replace('.json', '')
+            json_data[table_name] = data
     
     return JSONResponse(content=json_data)
+
+
+@router.post("/save/table/{table_name}")
+async def edit_table(table_name: str, table_content: dict):
+    directory = '/home/acer/minor project final/table_results'
+    file_path = os.path.join(directory, f"{table_name}.json")
+    
+    try:
+        # Check if the directory exists, if not create it
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+
+        # Ensure the content is a list and handle it properly
+        if 'content' not in table_content or not isinstance(table_content['content'], list):
+            raise HTTPException(status_code=400, detail="Invalid content format")
+
+        # Store only the content as list in the file
+        table_data = table_content['content']
+
+        # Save the content as JSON in the file (no table name in JSON)
+        with open(file_path, 'w') as file:
+            json.dump(table_data, file, indent=4)
+        
+        return JSONResponse(content={"message": f"Table '{table_name}' saved successfully!"}, status_code=200)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error saving the table: {str(e)}")
